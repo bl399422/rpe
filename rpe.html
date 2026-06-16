@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SciQuest Requisition Opener</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+      padding: 36px 40px;
+      max-width: 580px;
+      width: 100%;
+    }
+
+    h1 { font-size: 1.3rem; color: #1a2340; margin-bottom: 4px; }
+    .subtitle { font-size: 0.85rem; color: #6b7280; margin-bottom: 24px; }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #93c5fd;
+      border-radius: 10px;
+      padding: 28px 20px;
+      text-align: center;
+      background: #eff6ff;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      background: #dbeafe;
+      border-color: #3b82f6;
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { font-size: 2rem; margin-bottom: 8px; }
+    .drop-label { font-size: 0.9rem; color: #1d4ed8; font-weight: 600; }
+    .drop-sub { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
+    .file-name {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: #059669;
+      font-weight: 600;
+      display: none;
+    }
+
+    .req-list-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #374151;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 220px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 0.88rem;
+      line-height: 1.7;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 12px 14px;
+      resize: vertical;
+      color: #111827;
+      background: #f9fafb;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    textarea:focus { border-color: #3b82f6; background: #fff; }
+    textarea::placeholder { color: #9ca3af; }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+
+    .counter {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 0.88rem;
+      color: #1d4ed8;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    #open-btn {
+      flex: 1;
+      min-width: 180px;
+      padding: 11px 20px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s, transform 0.08s, box-shadow 0.15s;
+      user-select: none;
+    }
+    #open-btn:hover:not(:disabled) { background: #1d4ed8; }
+    #open-btn:active:not(:disabled) { transform: scale(0.97); }
+    #open-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #open-btn.ctrl-active { box-shadow: 0 0 0 3px #86efac; }
+
+    .hint {
+      margin-top: 14px;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .key-badge {
+      display: inline-block;
+      background: #e5e7eb;
+      border: 1px solid #9ca3af;
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #374151;
+      font-weight: 700;
+      box-shadow: 0 1px 0 #9ca3af;
+    }
+
+    .flash { animation: flash 0.25s ease; }
+    @keyframes flash {
+      0%   { background: #22c55e; }
+      100% { background: #2563eb; }
+    }
+
+    #error-msg {
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: #991b1b;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Requisition Print Extractor</h1>
+  <p class="subtitle">Upload a ticket report to extract REQ numbers</p>
+
+  <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".xlsx" />
+      <div class="drop-icon">📂</div>
+      <div class="drop-label">Click to choose or drag & drop an Excel file</div>
+      <div class="drop-sub">.xlsx files only</div>
+      <div class="file-name" id="file-name"></div>
+  </div>
+
+  
+
+  <div id="error-msg"></div>
+
+  <div class="req-list-label">Requisition Numbers (editable)</div>
+  <textarea id="req-textarea" placeholder="Upload an Excel file above to populate this list, or paste REQ numbers manually..."></textarea>
+
+  <div class="controls">
+    <div class="counter" id="counter">No REQ numbers loaded</div>
+    <button id="open-btn" disabled>Hold Ctrl + Click to Open</button>
+  </div>
+
+  <p class="hint">
+    Hold <span class="key-badge">Ctrl</span> while clicking the button to open each requisition in a new tab.
+  </p>
+  <p class="hint">
+    © Benjamin Lammers 2026
+  </p>
+</div>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const fileNameEl = document.getElementById('file-name');
+  const textarea   = document.getElementById('req-textarea');
+  const counterEl  = document.getElementById('counter');
+  const btn        = document.getElementById('open-btn');
+  const errorEl    = document.getElementById('error-msg');
+  
+
+  const BASE_URL = 'https://solutions.sciquest.com/apps/Router/ReqSummaryPrinterFriendly?ReqId=';
+
+  let index = 0;
+  let ctrlDown = false;
+  // When true user has opened every REQ in the current list
+  let finished = false;
+
+  // File input / drag-drop 
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  function handleFile(file) {
+    setError('');
+
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      showError('Only .xlsx files are supported. Please upload a valid Excel workbook.');
+      return;
+    }
+
+    fileNameEl.textContent = '📄 ' + file.name;
+    fileNameEl.style.display = 'block';
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', defval: '' });
+
+        appendDebug('REQ Opener Debug — handleFile');
+        appendDebug('file: ' + file.name);
+        appendDebug('sheets: ' + JSON.stringify(wb.SheetNames));
+
+        // Column G = index 6 (0-based). Rows from row 8 = Excel row 8 (1-based index 7).
+        const colG = 6; // G is the 7th column, 0-indexed
+        const startRow = 7; // row 8 is 0-indexed as 7
+
+        const allText = [];
+
+        const summarySheetName = wb.SheetNames.find(name => name && name.toLowerCase().includes('summary')) || wb.SheetNames[0];
+        if (!summarySheetName) {
+          setError('Summary worksheet not found in the uploaded workbook.');
+          return;
+        }
+
+        const ws = wb.Sheets[summarySheetName];
+        if (!ws) {
+          setError('Summary worksheet is unavailable in the workbook.');
+          return;
+        }
+
+        for (const addr of Object.keys(ws)) {
+          if (addr[0] === '!') continue;
+          const { c, r } = XLSX.utils.decode_cell(addr);
+          if (c !== colG || r < startRow) continue;
+
+          const cell = ws[addr];
+          let rawValue = '';
+            if (cell) {
+              if (cell.v !== undefined && cell.v !== null && cell.v !== '') {
+                rawValue = cell.v;
+              } else if (cell.w !== undefined && cell.w !== null && cell.w !== '') {
+                rawValue = cell.w;
+              } else if (cell.r) {
+                appendDebug('Rich-text cell encountered at ' + addr + ' type=' + typeof cell.r);
+                appendDebug('cell.r preview: ' + (typeof cell.r === 'string' ? cell.r.slice(0,300) : JSON.stringify(cell.r).slice(0,800)));
+                rawValue = extractRichText(cell.r);
+                appendDebug('extracted rawValue: ' + String(rawValue).slice(0,300));
+              } else {
+                appendDebug('Cell exists but no v/w/r at ' + addr + ' keys=' + Object.keys(cell).join(','));
+                try {
+                  appendDebug('cell dump: ' + JSON.stringify(cell).slice(0,1000));
+                } catch (e) {
+                  appendDebug('cell dump failed');
+                }
+              }
+            }
+          const text = String(rawValue).trim();
+          if (text !== '') {
+            allText.push(text);
+            console.log(`Found ${addr}: row=${r + 1} text="${text}"`);
+          }
+        }
+
+        
+
+        // Fallback: if no values found via per-cell parsing, try sheet_to_json which
+        // sometimes normalizes shared strings and rich text better.
+        if (allText.length === 0) {
+          appendDebug('No per-cell values found — trying XLSX.utils.sheet_to_json fallback');
+          try {
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+            appendDebug('rows length: ' + rows.length);
+            for (let r = startRow; r < rows.length; r++) {
+              const row = rows[r] || [];
+              const cellText = row[colG] !== undefined && row[colG] !== null ? String(row[colG]).trim() : '';
+              if (cellText) {
+                allText.push(cellText);
+                appendDebug(`fallback row ${r+1} colG: ` + String(cellText).slice(0,200));
+              }
+            }
+            appendDebug('fallback results: ' + JSON.stringify(allText).slice(0,1000));
+          } catch (e) {
+            appendDebug('fallback sheet_to_json failed: ' + String(e));
+          }
+        }
+
+        // Finalize extraction: either continue now or attempt ZIP-based fallback.
+        function finalizeExtraction(texts) {
+          appendDebug('Finalizing with ' + texts.length + ' extracted values');
+          for (let i = 0; i < Math.min(10, texts.length); i++) {
+            const preview = String(texts[i] || '').slice(0,200);
+            appendDebug('texts[' + i + '] (len=' + String(texts[i] ? texts[i].length : 0) + '): ' + JSON.stringify(preview));
+          }
+          // sanitize zero-width and control chars that sometimes appear in shared strings
+          const clean = texts.map(t => String(t || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim());
+          const concatenated = clean.join('');
+          const matches = [];
+          const regex = /(?=(\d{9}))/g;
+          let match;
+          while ((match = regex.exec(concatenated)) !== null) {
+            matches.push(match[1]);
+            regex.lastIndex = match.index + 1;
+          }
+          appendDebug('concatenated column G string length: ' + concatenated.length);
+          appendDebug('9-digit sequences found: ' + JSON.stringify(matches).slice(0,1000));
+          if (matches.length === 0) {
+            setError('No 9-digit sequences found in column G from row 8 onwards.');
+            return;
+          }
+            index = 0;
+            finished = false;
+            textarea.value = matches.join('\n');
+            updateCounter();
+        }
+
+        if (allText.length > 0) {
+          finalizeExtraction(allText);
+        } else {
+          // Try ZIP-based sharedStrings and sheet XML parsing
+          appendDebug('No per-cell values found — attempting ZIP sharedStrings parse');
+          parseXlsxViaZip(e.target.result, summarySheetName, colG, startRow).then(fallbackTexts => {
+            if (fallbackTexts && fallbackTexts.length) {
+              finalizeExtraction(fallbackTexts);
+            } else {
+              setError('No 9-digit sequences found in column G from row 8 onwards.');
+            }
+          }).catch(err => {
+            appendDebug('ZIP fallback failed: ' + String(err));
+            setError('No 9-digit sequences found in column G from row 8 onwards.');
+          });
+        }
+      } catch (err) {
+        setError('Could not read the file. Please make sure it is a valid .xlsx file.');
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // Ctrl key tracking
+  document.addEventListener('keydown', e => { if (e.key === 'Control') updateCtrlState(true); });
+  document.addEventListener('keyup',   e => { if (e.key === 'Control') updateCtrlState(false); });
+  window.addEventListener('blur', () => updateCtrlState(false));
+
+  // Error helper used by file handling flow
+  function setError(msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = msg ? 'block' : 'none';
+  }
+  // Backwards-compatible alias
+  function showError(msg) { return setError(msg); }
+
+  function updateCtrlState(down) {
+    ctrlDown = down;
+    // keep button disabled if we've already finished opening the list
+    btn.disabled = finished || !down || getReqNumbers().length === 0;
+    btn.classList.toggle('ctrl-active', down && !finished && getReqNumbers().length > 0);
+  }
+
+  // Open button
+  btn.addEventListener('click', e => {
+    if (!e.ctrlKey) return;
+    const reqs = getReqNumbers();
+    if (!reqs.length) return;
+    // If we've already reached the end, do nothing
+    if (index >= reqs.length) return;
+
+    const reqId = reqs[index];
+    const url = BASE_URL + reqId;
+    window.open(url, '_blank');
+
+    btn.classList.remove('flash');
+    void btn.offsetWidth;
+    btn.classList.add('flash');
+
+    index++;
+    if (index >= reqs.length) {
+      // Completed the list: disable the button and mark finished
+      finished = true;
+      btn.disabled = true;
+      btn.classList.remove('ctrl-active');
+      counterEl.textContent = `✓ All done — opened ${reqs.length} items`;
+    } else {
+      counterEl.textContent = `Next: #${index + 1} of ${reqs.length}`;
+    }
+  });
+
+  // Textarea manual edits
+  textarea.addEventListener('input', () => { index = 0; finished = false; updateCounter(); });
+
+  // Helpers
+  function appendDebug(msg, obj) {
+    // debug disabled in production build
+    return;
+  }
+  function extractRichText(rvalue) {
+    try {
+      if (!rvalue) return '';
+
+      // If parsed by xlsx.js it may be an array of run objects or an object with .r
+      if (typeof rvalue === 'object') {
+        const runs = Array.isArray(rvalue) ? rvalue : (Array.isArray(rvalue.r) ? rvalue.r : null) || (rvalue.richText || null);
+        if (runs) {
+          return runs.map(run => {
+            if (!run) return '';
+            if (typeof run === 'string') return run;
+            if (run.t !== undefined) return String(run.t);
+            if (run['#text'] !== undefined) return String(run['#text']);
+            if (run['$t'] !== undefined) return String(run['$t']);
+            if (run.Text !== undefined) return String(run.Text);
+            if (run.text !== undefined) return String(run.text);
+            // last resort: JSON stringify then strip tags
+            return (run.textContent || '') + '';
+          }).join('');
+        }
+      }
+
+      // If it's a string of XML (namespaced <r> runs), parse and extract <t> nodes
+      if (typeof rvalue === 'string') {
+        const wrapped = '<root>' + rvalue + '</root>';
+        const doc = new DOMParser().parseFromString(wrapped, 'application/xml');
+        const texts = [];
+        const all = doc.getElementsByTagName('*');
+        for (let i = 0; i < all.length; i++) {
+          const el = all[i];
+          if (el.localName && el.localName.toLowerCase() === 't') {
+            texts.push(el.textContent || '');
+          }
+        }
+        if (texts.length) return texts.join('');
+        return doc.documentElement.textContent || rvalue.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+
+      return String(rvalue).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } catch (err) {
+      return String(rvalue).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  function stripHtml(html) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      return doc.body ? (doc.body.textContent || '').replace(/\s+/g, ' ').trim() : html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } catch (e) {
+      return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  async function parseXlsxViaZip(arrayBuffer, sheetName, colIndex, startRow) {
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const wkXml = await zip.file('xl/workbook.xml').async('string');
+      const wkDoc = new DOMParser().parseFromString(wkXml, 'application/xml');
+      const sheets = wkDoc.getElementsByTagName('sheet');
+      let targetRid = null;
+      let targetSheetPath = null;
+      for (let i = 0; i < sheets.length; i++) {
+        const s = sheets[i];
+        const name = s.getAttribute('name');
+        const rid = s.getAttribute('r:id');
+        if (name && name.toLowerCase() === sheetName.toLowerCase()) {
+          targetRid = rid;
+          break;
+        }
+      }
+      appendDebug('ZIP parser: targetRid=' + targetRid);
+      if (!targetRid && sheets.length) {
+        // fallback to first sheet
+        targetRid = sheets[0].getAttribute('r:id');
+      }
+      if (!targetRid) return [];
+      const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+      const relsDoc = new DOMParser().parseFromString(relsXml, 'application/xml');
+      const rels = relsDoc.getElementsByTagName('Relationship');
+      for (let i = 0; i < rels.length; i++) {
+        const r = rels[i];
+        if (r.getAttribute('Id') === targetRid) {
+          targetSheetPath = 'xl/' + r.getAttribute('Target');
+          break;
+        }
+      }
+      if (!targetSheetPath) return [];
+      appendDebug('ZIP parser: targetSheetPath=' + targetSheetPath);
+      const sheetXml = await zip.file(targetSheetPath).async('string');
+      let shared = [];
+      if (zip.file('xl/sharedStrings.xml')) {
+        const sst = await zip.file('xl/sharedStrings.xml').async('string');
+        const sstDoc = new DOMParser().parseFromString(sst, 'application/xml');
+        const sis = sstDoc.getElementsByTagName('si');
+        const rawSis = [];
+        for (let i = 0; i < sis.length; i++) {
+          const si = sis[i];
+          // keep raw XML for diagnostics
+          try {
+            rawSis.push(new XMLSerializer().serializeToString(si));
+          } catch (e) {
+            rawSis.push('');
+          }
+          // Collect all <t> nodes under this si (handle namespaced tags)
+          const allEls = si.getElementsByTagName('*');
+          let pieces = [];
+          for (let j = 0; j < allEls.length; j++) {
+            const el = allEls[j];
+            if (el.localName && String(el.localName).toLowerCase() === 't') {
+              pieces.push(el.textContent || '');
+            }
+          }
+          const joined = pieces.join('');
+          // remove zero-width characters which sometimes appear in Excel's shared strings
+          shared.push(joined.replace(/[\u200B-\u200D\uFEFF]/g, ''));
+        }
+        appendDebug('ZIP parser: sharedStrings count=' + shared.length);
+        // Log a preview of shared strings (first 40) with visible char codes for empty-seeming entries
+        try {
+          for (let si = 0; si < Math.min(40, shared.length); si++) {
+            const sraw = shared[si] || '';
+            const codes = [];
+            for (let k = 0; k < Math.min(60, sraw.length); k++) codes.push(sraw.charCodeAt(k));
+            appendDebug('shared[' + si + '] len=' + sraw.length + ' preview=' + JSON.stringify(sraw.slice(0,120)) + ' codes=' + JSON.stringify(codes));
+            if (!sraw) appendDebug('shared[' + si + '] rawSI=' + rawSis[si]);
+          }
+        } catch (e) { appendDebug('shared preview failed: ' + String(e)); }
+      }
+
+      const sheetDoc = new DOMParser().parseFromString(sheetXml, 'application/xml');
+      const cells = sheetDoc.getElementsByTagName('c');
+      const results = [];
+      function cellColumn(cellRef) { return cellRef.replace(/\d+/g, ''); }
+      function cellRow(cellRef) { return parseInt(cellRef.replace(/[^\d]/g, ''), 10); }
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const r = c.getAttribute('r');
+        if (!r) continue;
+        const col = cellColumn(r);
+        const row = cellRow(r);
+        if (col.toUpperCase() !== getColumnLetter(colIndex).toUpperCase()) continue;
+        if (row < startRow + 1) continue;
+        // prefer inline string
+        const is = c.getElementsByTagName('is');
+        if (is && is.length) {
+          const allEls = is[0].getElementsByTagName('*');
+          let pieces = [];
+          for (let j = 0; j < allEls.length; j++) {
+            const el = allEls[j];
+            if (el.localName && String(el.localName).toLowerCase() === 't') pieces.push(el.textContent || '');
+          }
+          results.push(pieces.join('').replace(/[\u200B-\u200D\uFEFF]/g, ''));
+          continue;
+        }
+        const v = c.getElementsByTagName('v');
+        if (v && v.length) {
+          const rawv = v[0].textContent || '';
+          appendDebug('cell ' + r + ' v textContent: ' + JSON.stringify(rawv));
+          const idx = parseInt(rawv, 10);
+          if (!isNaN(idx) && shared[idx] !== undefined) {
+            const s = String(shared[idx] || '');
+            appendDebug(' -> mapped to shared[' + idx + '] len=' + s.length + ' preview=' + JSON.stringify(s.slice(0,120)));
+            results.push(s.replace(/[\u200B-\u200D\uFEFF]/g, ''));
+            continue;
+          }
+          if (rawv) results.push(rawv);
+        }
+      }
+      appendDebug('ZIP parser: results count=' + results.length);
+      return results;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  function getColumnLetter(index) {
+    // index can be a number (0-based col) or a letter
+    if (typeof index === 'number') {
+      let col = index + 1;
+      let s = '';
+      while (col > 0) {
+        const m = (col - 1) % 26;
+        s = String.fromCharCode(65 + m) + s;
+        col = Math.floor((col - 1) / 26);
+      }
+      return s;
+    }
+    return String(index);
+  }
+  function getReqNumbers() {
+    const reqs = [];
+    const lines = textarea.value.split('\n');
+    for (const line of lines) {
+      const matches = line.match(/\b\d{9}\b/g);
+      if (matches) matches.forEach(m => reqs.push(m));
+    }
+    return reqs;
+  }
+
+  function updateCounter() {
+    const reqs = getReqNumbers();
+    const total = reqs.length;
+    if (!total) {
+      counterEl.textContent = 'No REQ numbers loaded';
+      btn.disabled = true;
+      btn.classList.remove('ctrl-active');
+      return;
+    }
+    if (finished) {
+      btn.disabled = true;
+      btn.classList.remove('ctrl-active');
+      counterEl.textContent = `✓ All done — opened ${total} items`;
+      return;
+    }
+    if (index >= total) index = 0;
+    counterEl.textContent = `Next: #${index + 1} of ${total}`;
+    btn.disabled = !ctrlDown;
+    btn.classList.toggle('ctrl-active', ctrlDown);
+  }
+
+  updateCounter();
+</script>
+</body>
+</html>
